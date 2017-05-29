@@ -115,7 +115,8 @@ module.exports = function bindHandlers(map: Map, options: {}) {
     function onClick(e: MouseEvent) {
         const pos = DOM.mousePos(el, e);
 
-        if (pos.equals((startPos: any))) {
+        // incorportated changes to prevent RTE in DGLux Designer Mode
+        if (startPos != null && pos.equals((startPos: any))) {
             fireMouseEvent('click', e);
         }
     }
