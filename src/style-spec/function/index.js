@@ -32,7 +32,6 @@ function createFunction(parameters, propertySpec) {
 
     let fun;
 
-    console.log(parameters.stops);
     if (!isFunctionDefinition(parameters)) {
         if (isColor && parameters) {
             parameters = parseColor(parameters);
