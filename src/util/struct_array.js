@@ -375,9 +375,21 @@ function createMemberComponentString(member, component) {
 }
 
 function createGetter(member, c) {
-    return new Function(`return ${createMemberComponentString(member, c)};`);
+    const eo = `_pos${sizeOf(member.type).toFixed(0)}`;
+    const o = (member.offset / sizeOf(member.type) + c);
+    const k = getArrayViewName(member.type);
+   
+    return function() {
+        return this._structArray[k][this[eo]+o];
+    };
 }
 
 function createSetter(member, c) {
-    return new Function('x', `${createMemberComponentString(member, c)} = x;`);
+    const eo = `_pos${sizeOf(member.type).toFixed(0)}`;
+    const o = (member.offset / sizeOf(member.type) + c);
+    const k = getArrayViewName(member.type);
+   
+    return function(x) {
+        this._structArray[k][this[eo]+o] = x;
+    };
 }
