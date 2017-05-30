@@ -10,11 +10,29 @@ function identityFunction(x) {
     return x;
 }
 
+function createSimpleCategorical(parameters) {
+    const stops = parameters.stops;
+    const property = parameters.property;
+   
+    const first = stops[Object.keys(stops)[0]];
+   
+    const fun = function(zoom, feature) {
+        const value = stops[feature[property]];
+        if (value == null) {
+            return first;
+        }
+        return value;
+    };
+   
+    return fun;
+}
+
 function createFunction(parameters, propertySpec) {
     const isColor = propertySpec.type === 'color';
 
     let fun;
 
+    console.log(parameters.stops);
     if (!isFunctionDefinition(parameters)) {
         if (isColor && parameters) {
             parameters = parseColor(parameters);
@@ -24,7 +42,26 @@ function createFunction(parameters, propertySpec) {
         };
         fun.isFeatureConstant = true;
         fun.isZoomConstant = true;
+    } else if(parameters.type === 'categorical' && parameters.property &&
+            parameters.stops && !Array.isArray(parameters.stops)) {
+        // simple categorical
+        // instead of an array, it's a key-value object
 
+        let parsedValue;
+        {
+            const newStops = {};
+            const keys = Object.keys(parameters.stops);
+   
+            for (const key of keys) {
+                newStops[key] = parseColor(parameters.stops[key]);
+            }
+            
+            parsedValue = extend({}, parameters, { stops: newStops });
+        }
+
+        fun = createSimpleCategorical(parsedValue);
+        fun.isFeatureConstant = false;
+        fun.isZoomConstant = true;
     } else {
         const zoomAndFeatureDependent = parameters.stops && typeof parameters.stops[0][0] === 'object';
         const featureDependent = zoomAndFeatureDependent || parameters.property !== undefined;

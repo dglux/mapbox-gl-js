@@ -331,9 +331,13 @@ class StyleLayer extends Evented {
     }
 
     _validate(validate, key, name, value, options) {
-        if (options && options.validate === false) {
+        // really hacky way for changing the style specification
+        // probably the best place to patch to support simple categorical stops (vs. actually changing style spec)
+        if ((options && options.validate === false) ||
+                (value.type === 'categorical' && value.stops && !Array.isArray(value.stops))) {
             return false;
         }
+        
         return validateStyle.emitErrors(this, validate.call(validateStyle, {
             key: key,
             layerType: this.type,

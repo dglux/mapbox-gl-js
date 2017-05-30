@@ -649,7 +649,7 @@ class Style extends Evented {
     setTransitionDuration(layerId, value) {
         this._checkLoaded();
    
-        const layer = this.getLayer(layer);
+        const layer = this.getLayer(layerId);
         layer.setTransitionDuration(value);
     }
 
