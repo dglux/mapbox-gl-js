@@ -44,7 +44,8 @@ const ignoredDiffOperations = util.pick(diff.operations, [
     'setCenter',
     'setZoom',
     'setBearing',
-    'setPitch'
+    'setPitch',
+    'setTransitionDuration'
 ]);
 
 /**
@@ -643,6 +644,17 @@ class Style extends Evented {
      */
     getLayoutProperty(layer, name) {
         return this.getLayer(layer).getLayoutProperty(name);
+    }
+
+    setTransitionDuration(layerId, value) {
+        this._checkLoaded();
+   
+        const layer = this.getLayer(layer);
+        layer.setTransitionDuration(value);
+    }
+
+    getTransitionDuration(layer) {
+        return this.getLayer(layer).duration;
     }
 
     setPaintProperty(layerId, name, value, klass) {

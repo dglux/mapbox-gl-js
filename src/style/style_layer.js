@@ -23,6 +23,8 @@ class StyleLayer extends Evented {
         this.maxzoom = layer.maxzoom;
         this.filter = layer.filter;
 
+        this.duration = 300;
+
         this.paint = {};
         this.layout = {};
 
@@ -61,6 +63,10 @@ class StyleLayer extends Evented {
         for (layoutName in this._layoutSpecifications) {
             this._updateLayoutValue(layoutName);
         }
+    }
+
+    setTransitionDuration(value) {
+        this.duration = value;
     }
 
     setLayoutProperty(name, value, options) {
@@ -297,7 +303,7 @@ class StyleLayer extends Evented {
         if (oldTransition && oldTransition.declaration.json === declaration.json) return;
 
         const transitionOptions = util.extend({
-            duration: 300,
+            duration: this.duration,
             delay: 0
         }, globalOptions, this.getPaintProperty(name + TRANSITION_SUFFIX));
 

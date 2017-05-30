@@ -1162,6 +1162,15 @@ class Map extends Camera {
         return this.style.getPaintProperty(layer, name, klass);
     }
 
+    setTransitionDuration(layerId, value) {
+        this.style.setTransitionDuration(layerId, value);
+        return this;
+    }
+
+    getTransitionDuration(layer) {
+        return this.style.getTransitionDuration(layer);
+    }
+
     /**
      * Sets the value of a layout property in the specified style layer.
      *
