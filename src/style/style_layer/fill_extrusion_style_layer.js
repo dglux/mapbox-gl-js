@@ -4,7 +4,11 @@ const StyleLayer = require('../style_layer');
 const FillExtrusionBucket = require('../../data/bucket/fill_extrusion_bucket');
 
 class FillExtrusionStyleLayer extends StyleLayer {
-
+    constructor(layer) {
+        super(layer);
+        this._isFillLayer = true;
+    }
+       
     getPaintValue(name, globalProperties, featureProperties) {
         const value = super.getPaintValue(name, globalProperties, featureProperties);
         if (name === 'fill-extrusion-color' && value) {

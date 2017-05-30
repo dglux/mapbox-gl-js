@@ -4,6 +4,10 @@ const StyleLayer = require('../style_layer');
 const FillBucket = require('../../data/bucket/fill_bucket');
 
 class FillStyleLayer extends StyleLayer {
+    constructor(layer) {
+        super(layer);
+        this._isFillLayer = true;
+    }
 
     getPaintValue(name, globalProperties, featureProperties) {
         if (name === 'fill-outline-color') {

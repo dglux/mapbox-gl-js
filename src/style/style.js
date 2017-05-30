@@ -25,6 +25,27 @@ const deref = require('../style-spec/deref');
 const diff = require('../style-spec/diff');
 const rtlTextPlugin = require('../source/rtl_text_plugin');
 
+// TODO: Switch out for parseColor?
+function rgba2Array(str) {
+    if (str.substr(0,1) == '#') {
+        var c = parseInt('0x' + str.substr(1));
+        return [c>>16, (c>>8) &255, c&255, 255];
+    }
+
+    if (str.substr(0,3) == 'rgb') {
+        var pos0 = str.indexOf('(');
+        var pos1 = str.indexOf(')');
+        var colors = str.substring(pos0+1, pos1).split(',');
+        if (colors.length == 3) { // rgb()
+            return [parseInt(colors[0]), parseInt(colors[1]), parseInt(colors[2]), 255];
+        } else if (colors.length == 4) { //rgba()
+            return [parseInt(colors[0]), parseInt(colors[1]), parseInt(colors[2]), (parseFloat(colors[3])*255)&255];
+        }
+    }
+
+    return null;
+}
+
 const supportedDiffOperations = util.pick(diff.operations, [
     'addLayer',
     'removeLayer',
@@ -67,6 +88,8 @@ class Style extends Evented {
         this.sourceCaches = {};
         this.zoomHistory = {};
         this._loaded = false;
+
+        this._deferExtrusionFast = false;
 
         util.bindAll(['_redoPlacement'], this);
 
@@ -657,7 +680,7 @@ class Style extends Evented {
         return this.getLayer(layer).duration;
     }
 
-    setPaintProperty(layerId, name, value, klass) {
+    setPaintProperty(layerId, name, value, klass, fast) {
         this._checkLoaded();
 
         const layer = this.getLayer(layerId);
@@ -683,7 +706,200 @@ class Style extends Evented {
             value.property !== undefined
         );
 
-        if (!isFeatureConstant || !wasFeatureConstant) {
+        // this a temp workaround for one hard coded single usecase
+        // need to improve this part and make it work as a more generic feature
+        if (fast && name === 'fill-color' && value.type === "categorical") {
+            var property = value.property;
+
+            var gl = this.map.painter.gl;
+            var bucketKey = /*'_dgFast_'+*/layerId;
+            function processTile(tile) {
+                if (!tile.buckets[bucketKey]) {
+                    tile.postProcess = null;
+                    return;
+                }
+
+                var buffer = tile.buckets[bucketKey].buffers.layerData[bucketKey].paintVertexBuffer;
+                var flen = tile.featureTags.length;
+                var byteLen = tile.featureTags[flen-1][bucketKey][1] * 4;
+                var uint8Array;
+                if (buffer.arrayBuffer) {
+                    // when it's still in arrayBuffer
+                    uint8Array = new Uint8Array(buffer.arrayBuffer);
+                } else {
+                    // when arrayBuffer is destroyed
+                    uint8Array = new Uint8Array(byteLen);
+                }
+
+                for (var f = 0; f < flen; ++f) {
+                    var tags = tile.featureTags[f];
+                    var rgba = colorMap[tags[property]];
+                    if (!rgba) rgba = defaultColor;
+                    var end = tags[bucketKey][1];
+                    for (var cpos = tags[bucketKey][0]; cpos < end; ++ cpos) {
+                        for (var i = 0; i < 4; ++i) {
+                            uint8Array[cpos*4+i] = rgba[i];
+                        }
+                    }
+                }
+                if (buffer.buffer) {
+                    // when arrayBuffer is destroyed and buffer is created
+                    var type = gl[buffer.type];
+                    gl.bindBuffer(type, buffer.buffer);
+                    gl.bufferData(type, uint8Array, gl.STATIC_DRAW);
+                }
+            }
+
+            // build cache;
+            var colorMap = {};
+            var defaultColor = [0,0,0,0];
+            var stops = value.stops;
+            for (var i = 0; i < stops.length; ++i) {
+                var rgba = rgba2Array(stops[i][1]);
+                if (rgba) {
+                    colorMap[stops[i][0]] = rgba;
+                }
+            }
+            defaultColor = rgba2Array(stops[0][1]);
+            if (defaultColor == null) {
+                defaultColor = [0,0,0,0];
+            }
+
+            // process tiles
+            for (var key in this.sourceCaches[1]._tiles) {
+                var tile = this.sourceCaches[1]._tiles[key];
+                tile.postProcess = processTile;
+                if (tile.buckets[bucketKey]) {
+                    processTile(tile);
+                }
+            }
+
+            this._updatedLayers[layer.id] = true;
+            this._changed = true;
+        } 
+
+        // this a temp workaround for one hard coded single usecase
+        // need to improve this part and make it work as a more generic feature
+        else if (fast && (name === 'fill-extrusion-color' || name === 'fill-extrusion-height') && value.type === "categorical") {
+            if (this._deferExtrusionFast) {
+                return;
+            }
+
+            this._deferExtrusionFast = true;
+            
+            const property = value.property;
+            const stops = value.stops;
+
+            setTimeout(() => {
+                this._deferExtrusionFast = false;
+
+                var gl = this.map.painter.gl;
+                var bucketKey = layerId;
+
+                function processTile(tile) {
+                    if (!tile.buckets[bucketKey]) {
+                        tile.postProcess = null;
+                        return;
+                    }
+
+                    var buffer = tile.buckets[bucketKey].buffers.layerData[bucketKey].paintVertexBuffer;
+                    var flen = tile.featureTags.length;
+                    var byteLen = tile.featureTags[flen-1][bucketKey][1] * 8;
+                    var uint8Array;
+
+                    if (buffer.arrayBuffer) {
+                        // when it's still in arrayBuffer
+                        uint8Array = new Uint8Array(buffer.arrayBuffer);
+                    } else {
+                        // when arrayBuffer is destroyed
+                        uint8Array = new Uint8Array(byteLen);
+                    }
+
+                    var uint16Array = new Uint16Array(uint8Array.buffer);
+
+                    for (var f = 0; f < flen; ++f) {
+                        var tags = tile.featureTags[f];
+                        var height = parseInt(cacheMap[tags[property]] || defaultValue);
+                        var color = colorMap[tags[property]] || defaultColor;
+
+                        var start = tags[bucketKey][0];
+                        var end = tags[bucketKey][1];
+
+                        for (var cpos = start; cpos < end; ++cpos) {
+                            uint16Array[cpos * 4] = height;
+                            uint16Array[cpos * 4 + 1] = 0;
+                        
+                            uint8Array[cpos * 8 + 4] = color[0];
+                            uint8Array[cpos * 8 + 5] = color[1];
+                            uint8Array[cpos * 8 + 6] = color[2];
+                            uint8Array[cpos * 8 + 7] = color[3];
+                        }
+                    }
+                
+                    if (buffer.buffer) {
+                        // when arrayBuffer is destroyed and buffer is created
+                        var type = gl[buffer.type];
+                        gl.bindBuffer(type, buffer.buffer);
+                        gl.bufferData(type, uint8Array, gl.STATIC_DRAW);
+                    }
+                }
+
+                var heightStops = name === 'fill-extrusion-height' ? stops :
+                    (() => {
+                        var property = layer.getPaintProperty('fill-extrusion-height', klass);
+                        return (property.type === "categorical") ? property.stops : [];
+                    })();
+
+                var colorStops = name === 'fill-extrusion-color' ? stops :
+                    (() => {
+                        var property = layer.getPaintProperty('fill-extrusion-color', klass);
+                        return (property.type === "categorical") ? property.stops : [];
+                    })();
+
+                // build cache;
+                var cacheMap = {};
+                var defaultValue = 0;
+                if (heightStops.length) {
+                    for (var i = 0; i < heightStops.length; ++i) {
+                        var height = heightStops[i][1];
+                        if (height) {
+                            cacheMap[heightStops[i][0]] = height;
+                        }
+                    }
+
+                    defaultValue = heightStops[0][1] || 0;
+                }
+
+                // build cache;
+                var colorMap = {};
+                var defaultColor = [0,0,0,0];
+                if (colorStops.length) {
+                    for (var i = 0; i < colorStops.length; ++i) {
+                        var rgba = rgba2Array(colorStops[i][1]);
+                        if (rgba) {
+                            colorMap[colorStops[i][0]] = rgba;
+                        }
+                    }
+
+                    defaultColor = rgba2Array(colorStops[0][1]);
+                    if (defaultColor == null) {
+                        defaultColor = [0,0,0,0];
+                    }
+                }
+
+                // process tiles
+                for (var key in this.sourceCaches[1]._tiles) {
+                    var tile = this.sourceCaches[1]._tiles[key];
+                    tile.postProcess = processTile;
+                    if (tile.buckets[bucketKey]) {
+                        processTile(tile);
+                    }
+                }
+            }, 0);
+
+            this._updatedLayers[layer.id] = true;
+            this._changed = true;
+        } else if (!isFeatureConstant || !wasFeatureConstant) {
             this._updateLayer(layer);
         }
 

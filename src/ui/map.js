@@ -1144,8 +1144,8 @@ class Map extends Camera {
      * @see [Adjust a layer's opacity](https://www.mapbox.com/mapbox-gl-js/example/adjust-layer-opacity/)
      * @see [Create a draggable point](https://www.mapbox.com/mapbox-gl-js/example/drag-a-point/)
      */
-    setPaintProperty(layer, name, value, klass) {
-        this.style.setPaintProperty(layer, name, value, klass);
+    setPaintProperty(layer, name, value, klass, fast) {
+        this.style.setPaintProperty(layer, name, value, klass, fast);
         this._update(true);
         return this;
     }

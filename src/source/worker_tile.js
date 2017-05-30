@@ -109,6 +109,8 @@ class WorkerTile {
             const transferables = [];
 
             callback(null, {
+                // serialize custom data from the worker and post to main thread
+                featureTags: serializeFeatureTags(this),
                 buckets: serializeBuckets(util.values(buckets), transferables),
                 featureIndex: featureIndex.serialize(transferables),
                 collisionTile: collisionTile.serialize(transferables),
@@ -201,6 +203,20 @@ function recalculateLayers(bucket, zoom) {
     for (const layer of bucket.layers) {
         layer.recalculate(zoom);
     }
+}
+
+
+function serializeFeatureTags(tile) {
+    if (tile && tile.vectorTile && tile.vectorTile.features) {
+        var features = tile.vectorTile.features;
+        var result = [];
+        var len = features.length;
+        for (var i = 0; i < len; ++i) {
+            result.push(features[i].tags);
+        }
+        return result;
+    }
+    return null;
 }
 
 function serializeBuckets(buckets, transferables) {

@@ -227,6 +227,10 @@ class ProgramConfiguration {
                 }
             }
         }
+
+        if (layer._isFillLayer) {
+            featureProperties[/*'_dgFast_' + */ layer.id] = [start, length];
+        }
     }
 
     setUniforms(gl, program, layer, globalProperties) {

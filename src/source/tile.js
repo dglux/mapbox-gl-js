@@ -88,6 +88,14 @@ class Tile {
         this.collisionTile = new CollisionTile(data.collisionTile, this.collisionBoxArray);
         this.featureIndex = new FeatureIndex(data.featureIndex, this.rawTileData, this.collisionTile);
         this.buckets = Bucket.deserialize(data.buckets, painter.style);
+
+        // deserialize the custom data in main thread
+        this.featureTags = data.featureTags;
+
+        // in case the style is updated during worker job
+        if (this.postProcess) {
+            this.postProcess(this);
+        }
     }
 
     /**
