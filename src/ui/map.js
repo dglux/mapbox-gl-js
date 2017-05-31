@@ -1018,8 +1018,8 @@ class Map extends Camera {
      * @param {Function} callback Called when the image has loaded or with an error argument if there is an error.
      * @see [Add an icon to the map](https://www.mapbox.com/mapbox-gl-js/example/add-image/)
      */
-    loadImage(url, callback) {
-        ajax.getImage(url, callback);
+    loadImage(url, callback, credentials) {
+        ajax.getImage(url, callback, credentials);
     }
 
     /**

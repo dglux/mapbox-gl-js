@@ -33,9 +33,10 @@ exports.getJSON = function(url, callback) {
     return xhr;
 };
 
-exports.getArrayBuffer = function(url, callback) {
+exports.getArrayBuffer = function(url, callback, credentials) {
     const xhr = new window.XMLHttpRequest();
     xhr.open('GET', url, true);
+    xhr.withCredentials = !!credentials;
     xhr.responseType = 'arraybuffer';
     xhr.onerror = function(e) {
         callback(e);
@@ -66,7 +67,7 @@ function sameOrigin(url) {
 
 const transparentPngUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQYV2NgAAIAAAUAAarVyFEAAAAASUVORK5CYII=';
 
-exports.getImage = function(url, callback) {
+exports.getImage = function(url, callback, credentials) {
     // request the image with XHR to work around caching issues
     // see https://github.com/mapbox/mapbox-gl-js/issues/1470
     return exports.getArrayBuffer(url, (err, imgData) => {
@@ -81,7 +82,7 @@ exports.getImage = function(url, callback) {
         img.cacheControl = imgData.cacheControl;
         img.expires = imgData.expires;
         img.src = imgData.data.byteLength ? URL.createObjectURL(blob) : transparentPngUrl;
-    });
+    }, credentials);
 };
 
 exports.getVideo = function(urls, callback) {
