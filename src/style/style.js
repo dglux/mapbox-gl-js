@@ -772,7 +772,7 @@ class Style extends Evented {
     }
 
     getTransition() {
-        return util.extend({ duration: 300, delay: 0 },
+        return util.extend({ duration: this.map.transitionDuration, delay: 0 },
             this.stylesheet && this.stylesheet.transition);
     }
 

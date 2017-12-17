@@ -244,6 +244,7 @@ class Map extends Camera {
     _delegatedListeners: any;
     _fadeDuration: number;
     _crossFadingFactor: number;
+    transitionDuration: number;
 
     scrollZoom: ScrollZoomHandler;
     boxZoom: BoxZoomHandler;
@@ -272,6 +273,8 @@ class Map extends Camera {
         this._refreshExpiredTiles = options.refreshExpiredTiles;
         this._fadeDuration = options.fadeDuration;
         this._crossFadingFactor = 1;
+
+        this.transitionDuration = 300;
 
         const transformRequestFn = options.transformRequest;
         this._transformRequest = transformRequestFn ?  (url, type) => transformRequestFn(url, type) || ({ url }) : (url) => ({ url });
@@ -1450,6 +1453,14 @@ class Map extends Camera {
         this._rerender();
     }
 
+    setTransitionDuration(value) {
+        this.transitionDuration = value;
+    }
+
+    getTransitionDuration(value) {
+        return this.transitionDuration;
+    }
+
     /**
      * Call when a (re-)render of the map is required:
      * - The style has changed (`setPaintProperty()`, etc.)
@@ -1481,7 +1492,7 @@ class Map extends Camera {
                 now,
                 fadeDuration: this._fadeDuration,
                 zoomHistory: this.style.zoomHistory,
-                transition: util.extend({ duration: 300, delay: 0 }, this.style.stylesheet.transition)
+                transition: util.extend({ duration: this.transitionDuration, delay: 0 }, this.style.stylesheet.transition)
             });
 
             const factor = parameters.crossFadingFactor();
