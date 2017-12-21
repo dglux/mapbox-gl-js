@@ -19,7 +19,7 @@ function drawHillshade(painter: Painter, sourceCache: SourceCache, layer: Hillsh
     const context = painter.context;
 
     context.setDepthMode(painter.depthModeForSublayer(0, DepthMode.ReadOnly));
-    context.setStencilMode(StencilMode.disabled());
+    context.setStencilMode(StencilMode.disabled);
     context.setColorMode(painter.colorModeForRenderPass());
 
     for (const tileID of tileIDs) {
@@ -37,10 +37,9 @@ function drawHillshade(painter: Painter, sourceCache: SourceCache, layer: Hillsh
 
 function setLight(program, painter, layer) {
     let azimuthal = layer.paint.get('hillshade-illumination-direction') * (Math.PI / 180);
-    const zenith = 30 * (Math.PI / 180);
     // modify azimuthal angle by map rotation if light is anchored at the viewport
     if (layer.paint.get('hillshade-illumination-anchor') === 'viewport')  azimuthal -= painter.transform.angle;
-    painter.context.gl.uniform3f(program.uniforms.u_light, layer.paint.get('hillshade-exaggeration'), azimuthal, zenith);
+    painter.context.gl.uniform2f(program.uniforms.u_light, layer.paint.get('hillshade-exaggeration'), azimuthal);
 
 }
 
