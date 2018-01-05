@@ -163,6 +163,8 @@ class WorkerTile {
                 this.status = 'done';
 
                 callback(null, {
+                    // serialize custom data from the worker and post to main thread
+                    featureTags: serializeFeatureTags(this),
                     buckets: util.values(buckets).filter(b => !b.isEmpty()),
                     featureIndex,
                     collisionBoxArray: this.collisionBoxArray,
@@ -172,6 +174,19 @@ class WorkerTile {
             }
         }
     }
+}
+
+function serializeFeatureTags(tile) {
+    if (tile && tile.vectorTile && tile.vectorTile._features) {
+        var features = tile.vectorTile._features;
+        var result = [];
+        var len = features.length;
+        for (var i = 0; i < len; ++i) {
+            result.push(features[i].tags);
+        }
+        return result;
+    }
+    return null;
 }
 
 function recalculateLayers(layers: $ReadOnlyArray<StyleLayer>, zoom: number) {

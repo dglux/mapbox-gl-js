@@ -36,6 +36,27 @@ import type CollisionIndex from '../symbol/collision_index';
 import type {Callback} from '../types/callback';
 import type EvaluationParameters from './evaluation_parameters';
 
+// TODO: Switch out for parseColor?
+function rgba2Array(str) {
+    if (str.substr(0,1) == '#') {
+        var c = parseInt('0x' + str.substr(1));
+        return [c>>16, (c>>8) &255, c&255, 255];
+    }
+
+    if (str.substr(0,3) == 'rgb') {
+        var pos0 = str.indexOf('(');
+        var pos1 = str.indexOf(')');
+        var colors = str.substring(pos0+1, pos1).split(',');
+        if (colors.length == 3) { // rgb()
+            return [parseInt(colors[0]), parseInt(colors[1]), parseInt(colors[2]), 255];
+        } else if (colors.length == 4) { //rgba()
+            return [parseInt(colors[0]), parseInt(colors[1]), parseInt(colors[2]), (parseFloat(colors[3])*255)&255];
+        }
+    }
+
+    return null;
+}
+
 const supportedDiffOperations = util.pick(diff.operations, [
     'addLayer',
     'removeLayer',
@@ -107,6 +128,8 @@ class Style extends Evented {
         this.sourceCaches = {};
         this.zoomHistory = new ZoomHistory();
         this._loaded = false;
+
+        this._deferExtrusionFast = false;
 
         this._resetUpdates();
 
@@ -319,6 +342,10 @@ class Style extends Evented {
             }
 
             for (const id in this._updatedPaintProps) {
+                if (this.map.transitionDuration[id] !== undefined) {
+                    parameters.transition.duration = this.map.transitionDuration[id];
+                }
+
                 this._layers[id].updateTransitions(parameters);
             }
 
@@ -459,15 +486,18 @@ class Style extends Evented {
      * @param {string} id id of the source to remove
      * @throws {Error} if no source is found with the given ID
      */
-    removeSource(id: string) {
+    removeSource(id: string, replacement?: SourceSpecification) {
         this._checkLoaded();
 
         if (this.sourceCaches[id] === undefined) {
             throw new Error('There is no source with this ID');
         }
-        for (const layerId in this._layers) {
-            if (this._layers[layerId].source === id) {
-                return this.fire('error', {error: new Error(`Source "${id}" cannot be removed while layer "${layerId}" is using it.`)});
+
+        if (!replacement) {
+            for (const layerId in this._layers) {
+                if (this._layers[layerId].source === id) {
+                    return this.fire('error', {error: new Error(`Source "${id}" cannot be removed while layer "${layerId}" is using it.`)});
+                }
             }
         }
 
@@ -478,7 +508,14 @@ class Style extends Evented {
         sourceCache.setEventedParent(null);
         sourceCache.clearTiles();
 
-        if (sourceCache.onRemove) sourceCache.onRemove(this.map);
+        if (sourceCache.onRemove) {
+            sourceCache.onRemove(this.map);
+        }
+
+        if (!!replacement) {
+            this.addSource(id, replacement);
+        }
+
         this._changed = true;
     }
 
@@ -739,7 +776,10 @@ class Style extends Evented {
         return this.getLayer(layer).getLayoutProperty(name);
     }
 
-    setPaintProperty(layerId: string, name: string, value: any) {
+    setPaintProperty(layerId: string, name: string, value: any, fast?: boolean) {
+        // work around until fast is fixes
+        fast = false;
+
         this._checkLoaded();
 
         const layer = this.getLayer(layerId);
@@ -759,7 +799,213 @@ class Style extends Evented {
         layer.setPaintProperty(name, value);
         const isDataDriven = layer._transitionablePaint._values[name].value.isDataDriven();
 
-        if (isDataDriven || wasDataDriven) {
+        // this a temp workaround for one hard coded single usecase
+        // need to improve this part and make it work as a more generic feature
+        if (fast && name === 'fill-color' && value[0] === "match") {
+            var property = value[1][1];
+
+            var gl = this.map.painter.context.gl;
+            var bucketKey = /*'_dgFast_'+*/layerId;
+            function processTile(tile) {
+                if (!tile.buckets[bucketKey]) {
+                    tile.postProcess = null;
+                    return;
+                }
+
+                var buffer = tile.buckets[bucketKey].buffers.layerData[bucketKey].paintVertexBuffer;
+                var flen = tile.featureTags.length;
+                var byteLen = tile.featureTags[flen-1][bucketKey][1] * 4;
+                var uint8Array;
+                if (buffer.arrayBuffer) {
+                    // when it's still in arrayBuffer
+                    uint8Array = new Uint8Array(buffer.arrayBuffer);
+                } else {
+                    // when arrayBuffer is destroyed
+                    uint8Array = new Uint8Array(byteLen);
+                }
+
+                for (var f = 0; f < flen; ++f) {
+                    var tags = tile.featureTags[f];
+                    var rgba = colorMap[tags[property]];
+                    if (!rgba) rgba = defaultColor;
+                    var end = tags[bucketKey][1];
+                    for (var cpos = tags[bucketKey][0]; cpos < end; ++ cpos) {
+                        for (var i = 0; i < 4; ++i) {
+                            uint8Array[cpos*4+i] = rgba[i];
+                        }
+                    }
+                }
+                if (buffer.buffer) {
+                    // when arrayBuffer is destroyed and buffer is created
+                    var type = gl[buffer.type];
+                    gl.bindBuffer(type, buffer.buffer);
+                    gl.bufferData(type, uint8Array, gl.STATIC_DRAW);
+                }
+            }
+
+            // build cache;
+            var colorMap = {};
+            var defaultColor = [0,0,0,0];
+
+            {
+                const len = value.length - 3;
+                for (var i = 2; i < len; i += 2) {
+                    var rgba = rgba2Array(value[i + 1]);
+                    if (rgba) {
+                        colorMap[value[1]] = rgba;
+                    }
+                }
+            }
+
+            defaultColor = rgba2Array(value[value.length - 1]);
+            if (defaultColor == null) {
+                defaultColor = [0,0,0,0];
+            }
+
+            // process tiles
+            for (var key in this.sourceCaches[1]._tiles) {
+                var tile = this.sourceCaches[1]._tiles[key];
+                tile.postProcess = processTile;
+                if (tile.buckets[bucketKey]) {
+                    processTile(tile);
+                }
+            }
+
+            this._updatedLayers[layer.id] = true;
+            this._changed = true;
+        } 
+
+        // this a temp workaround for one hard coded single usecase
+        // need to improve this part and make it work as a more generic feature
+        else if (fast && (name === 'fill-extrusion-color' || name === 'fill-extrusion-height') && value[0] === "match") {
+            if (this._deferExtrusionFast) {
+                return;
+            }
+
+            this._deferExtrusionFast = true;
+            
+            const property = value[1][1];
+            const stops = value.slice(2);
+
+            setTimeout(() => {
+                this._deferExtrusionFast = false;
+
+                var gl = this.map.painter.context.gl;
+                var bucketKey = layerId;
+
+                function processTile(tile) {
+                    if (!tile.buckets[bucketKey]) {
+                        tile.postProcess = null;
+                        return;
+                    }
+
+                    var buffer = tile.buckets[bucketKey].programConfigurations.programConfigurations[layerId].binders[name].paintVertexBuffer;
+                    
+                    if (!buffer) {
+                        console.log("buffer bailed");
+                        return;
+                    }
+                    
+                    var flen = tile.featureTags.length;
+                    var byteLen = tile.featureTags[flen-1][bucketKey][1] * 8;
+                    var uint8Array;
+
+                    if (buffer.arrayBuffer) {
+                        // when it's still in arrayBuffer
+                        uint8Array = new Uint8Array(buffer.arrayBuffer);
+                    } else {
+                        // when arrayBuffer is destroyed
+                        uint8Array = new Uint8Array(byteLen);
+                    }
+
+                    var uint16Array = new Uint16Array(uint8Array.buffer);
+
+                    for (var f = 0; f < flen; ++f) {
+                        var tags = tile.featureTags[f];
+                        var height = parseInt(cacheMap[tags[property]] || defaultValue);
+                        var color = colorMap[tags[property]] || defaultColor;
+
+                        var start = tags[bucketKey][0];
+                        var end = tags[bucketKey][1];
+
+                        for (var cpos = start; cpos < end; ++cpos) {
+                            uint16Array[cpos * 4] = height;
+                            uint16Array[cpos * 4 + 1] = 0;
+                        
+                            uint8Array[cpos * 8 + 4] = color[0];
+                            uint8Array[cpos * 8 + 5] = color[1];
+                            uint8Array[cpos * 8 + 6] = color[2];
+                            uint8Array[cpos * 8 + 7] = color[3];
+                        }
+                    }
+                
+                    if (buffer.buffer) {
+                        // when arrayBuffer is destroyed and buffer is created
+                        var type = gl.ARRAY_BUFFER;
+                        // ARRAY_BUFFER
+                        gl.bindBuffer(type, buffer.buffer);
+                        gl.bufferData(type, uint8Array, gl.STATIC_DRAW);
+                    }
+                }
+
+                var heightStops = name === 'fill-extrusion-height' ? stops :
+                    (() => {
+                        var property = layer.getPaintProperty('fill-extrusion-height');
+                        return (property[0] === "match") ? property.slice(2) : [];
+                    })();
+
+                var colorStops = name === 'fill-extrusion-color' ? stops :
+                    (() => {
+                        var property = layer.getPaintProperty('fill-extrusion-color');
+                        return (property[0] === "match") ? property.slice(2) : [];
+                    })();
+
+                // build cache;
+                var cacheMap = {};
+                var defaultValue = 0;
+                if (heightStops.length) {
+                    for (var i = 0; i < (heightStops.length - 1); i += 2) {
+                        var height = heightStops[i + 1];
+                        if (height) {
+                            cacheMap[heightStops[i]] = height;
+                        }
+                    }
+
+                    defaultValue = heightStops[heightStops.length - 1] || 0;
+                }
+
+                // build cache;
+                var colorMap = {};
+                var defaultColor = [0,0,0,0];
+                if (colorStops.length) {
+                    for (var i = 0; i < (colorStops.length - 1); i += 2) {
+                        var rgba = rgba2Array(colorStops[i + 1]);
+                        if (rgba) {
+                            colorMap[colorStops[i]] = rgba;
+                        }
+                    }
+
+                    defaultColor = rgba2Array(colorStops[colorStops.length - 1]);
+                    if (defaultColor == null) {
+                        defaultColor = [0,0,0,0];
+                    }
+                }
+
+                // process tiles
+                for (var key in this.sourceCaches[1]._tiles) {
+                    var tile = this.sourceCaches[1]._tiles[key];
+                    tile.postProcess = processTile;
+                    if (tile.buckets[bucketKey]) {
+                        processTile(tile);
+                    }
+                }
+            }, 0);
+
+            this._updatedLayers[layer.id] = true;
+            this._changed = true;
+        }
+        
+        else if (isDataDriven || wasDataDriven) {
             this._updateLayer(layer);
         }
 
@@ -772,7 +1018,7 @@ class Style extends Evented {
     }
 
     getTransition() {
-        return util.extend({ duration: this.map.transitionDuration, delay: 0 },
+        return util.extend({ duration: 300, delay: 0 },
             this.stylesheet && this.stylesheet.transition);
     }
 

@@ -24,6 +24,7 @@ class FillStyleLayer extends StyleLayer {
 
     constructor(layer: LayerSpecification) {
         super(layer, properties);
+        this._isFillLayer = false;
     }
 
     recalculate(parameters: EvaluationParameters) {

@@ -274,7 +274,7 @@ class Map extends Camera {
         this._fadeDuration = options.fadeDuration;
         this._crossFadingFactor = 1;
 
-        this.transitionDuration = 300;
+        this.transitionDuration = {};
 
         const transformRequestFn = options.transformRequest;
         this._transformRequest = transformRequestFn ?  (url, type) => transformRequestFn(url, type) || ({ url }) : (url) => ({ url });
@@ -1021,8 +1021,8 @@ class Map extends Camera {
      * @param {string} id The ID of the source to remove.
      * @returns {Map} `this`
      */
-    removeSource(id: string) {
-        this.style.removeSource(id);
+    removeSource(id: string, replacement?: SourceSpecification) {
+        this.style.removeSource(id, replacement);
         this._update(true);
         return this;
     }
@@ -1230,8 +1230,8 @@ class Map extends Camera {
      * @see [Adjust a layer's opacity](https://www.mapbox.com/mapbox-gl-js/example/adjust-layer-opacity/)
      * @see [Create a draggable point](https://www.mapbox.com/mapbox-gl-js/example/drag-a-point/)
      */
-    setPaintProperty(layer: string, name: string, value: any) {
-        this.style.setPaintProperty(layer, name, value);
+    setPaintProperty(layer: string, name: string, value: any, fast?: boolean) {
+        this.style.setPaintProperty(layer, name, value, fast);
         this._update(true);
         return this;
     }
@@ -1453,12 +1453,12 @@ class Map extends Camera {
         this._rerender();
     }
 
-    setTransitionDuration(value) {
-        this.transitionDuration = value;
+    setTransitionDuration(layer, value) {
+        this.transitionDuration[layer] = value;
     }
 
     getTransitionDuration(value) {
-        return this.transitionDuration;
+        return this.transitionDuration[value];
     }
 
     /**
@@ -1492,7 +1492,7 @@ class Map extends Camera {
                 now,
                 fadeDuration: this._fadeDuration,
                 zoomHistory: this.style.zoomHistory,
-                transition: util.extend({ duration: this.transitionDuration, delay: 0 }, this.style.stylesheet.transition)
+                transition: util.extend({ duration: 300, delay: 0 }, this.style.stylesheet.transition)
             });
 
             const factor = parameters.crossFadingFactor();

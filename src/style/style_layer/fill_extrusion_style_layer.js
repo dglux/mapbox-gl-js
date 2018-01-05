@@ -25,6 +25,7 @@ class FillExtrusionStyleLayer extends StyleLayer {
 
     constructor(layer: LayerSpecification) {
         super(layer, properties);
+        this._isFillLayer = false;
     }
 
     createBucket(parameters: BucketParameters<FillExtrusionStyleLayer>) {
