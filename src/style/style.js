@@ -26,6 +26,7 @@ const diff = require('../style-spec/diff');
 const rtlTextPlugin = require('../source/rtl_text_plugin');
 const Placement = require('./placement');
 const ZoomHistory = require('./zoom_history');
+const packUint8ToFloat = require('../shaders/encode_attribute').packUint8ToFloat;
 
 import type Map from '../ui/map';
 import type Transform from '../geo/transform';
@@ -778,7 +779,7 @@ class Style extends Evented {
 
     setPaintProperty(layerId: string, name: string, value: any, fast?: boolean) {
         // work around until fast is fixes
-        fast = false;
+        // fast = false;
 
         this._checkLoaded();
 
@@ -812,9 +813,12 @@ class Style extends Evented {
                     return;
                 }
 
-                var buffer = tile.buckets[bucketKey].buffers.layerData[bucketKey].paintVertexBuffer;
+                const binders = tile.buckets[bucketKey].programConfigurations.programConfigurations[layerId].binders;
+                const buffer = binders["fill-color"].paintVertexBuffer;
+
                 var flen = tile.featureTags.length;
                 var byteLen = tile.featureTags[flen-1][bucketKey][1] * 4;
+
                 var uint8Array;
                 if (buffer.arrayBuffer) {
                     // when it's still in arrayBuffer
@@ -824,17 +828,19 @@ class Style extends Evented {
                     uint8Array = new Uint8Array(byteLen);
                 }
 
+                var float32Array = new Float32Array(uint8Array.buffer);
+
                 for (var f = 0; f < flen; ++f) {
                     var tags = tile.featureTags[f];
                     var rgba = colorMap[tags[property]];
                     if (!rgba) rgba = defaultColor;
                     var end = tags[bucketKey][1];
                     for (var cpos = tags[bucketKey][0]; cpos < end; ++ cpos) {
-                        for (var i = 0; i < 4; ++i) {
-                            uint8Array[cpos*4+i] = rgba[i];
-                        }
+                        float32Array[cpos * 2 + 0] = packUint8ToFloat(rgba[0], rgba[1]);
+                        float32Array[cpos * 2 + 1] = packUint8ToFloat(rgba[2], rgba[3]);
                     }
                 }
+
                 if (buffer.buffer) {
                     // when arrayBuffer is destroyed and buffer is created
                     var type = gl[buffer.type];
@@ -899,52 +905,68 @@ class Style extends Evented {
                         return;
                     }
 
-                    var buffer = tile.buckets[bucketKey].programConfigurations.programConfigurations[layerId].binders[name].paintVertexBuffer;
+                    const binders = tile.buckets[bucketKey].programConfigurations.programConfigurations[layerId].binders;
+
+                    const bufferColor = binders["fill-extrusion-color"].paintVertexBuffer;
+                    const bufferHeight = binders["fill-extrusion-height"].paintVertexBuffer;
                     
-                    if (!buffer) {
+                    if (!bufferColor || !bufferHeight) {
                         console.log("buffer bailed");
                         return;
                     }
                     
                     var flen = tile.featureTags.length;
                     var byteLen = tile.featureTags[flen-1][bucketKey][1] * 8;
-                    var uint8Array;
 
-                    if (buffer.arrayBuffer) {
-                        // when it's still in arrayBuffer
-                        uint8Array = new Uint8Array(buffer.arrayBuffer);
-                    } else {
-                        // when arrayBuffer is destroyed
-                        uint8Array = new Uint8Array(byteLen);
-                    }
+                    const createArrObj = (buffer) => {
+                        var uint8Array;
 
-                    var uint16Array = new Uint16Array(uint8Array.buffer);
+                        if (buffer.arrayBuffer) {
+                            // when it's still in arrayBuffer
+                            uint8Array = new Uint8Array(buffer.arrayBuffer);
+                        } else {
+                            // when arrayBuffer is destroyed
+                            uint8Array = new Uint8Array(byteLen);
+                        }
+    
+                        var float32Array = new Float32Array(uint8Array.buffer);
+
+                        return { uint8Array, float32Array };
+                    };
+
+                    const arrObjColor = createArrObj(bufferColor);
+                    const arrObjHeight = createArrObj(bufferHeight);
 
                     for (var f = 0; f < flen; ++f) {
                         var tags = tile.featureTags[f];
-                        var height = parseInt(cacheMap[tags[property]] || defaultValue);
+                        var height = parseFloat(cacheMap[tags[property]] || defaultValue);
                         var color = colorMap[tags[property]] || defaultColor;
 
                         var start = tags[bucketKey][0];
                         var end = tags[bucketKey][1];
 
                         for (var cpos = start; cpos < end; ++cpos) {
-                            uint16Array[cpos * 4] = height;
-                            uint16Array[cpos * 4 + 1] = 0;
-                        
-                            uint8Array[cpos * 8 + 4] = color[0];
-                            uint8Array[cpos * 8 + 5] = color[1];
-                            uint8Array[cpos * 8 + 6] = color[2];
-                            uint8Array[cpos * 8 + 7] = color[3];
+                            arrObjColor.float32Array[cpos * 2 + 0] = packUint8ToFloat(color[0], color[1]);
+                            arrObjColor.float32Array[cpos * 2 + 1] = packUint8ToFloat(color[2], color[3]);
+
+                            arrObjHeight.float32Array[cpos] = height;
                         }
                     }
                 
-                    if (buffer.buffer) {
+                    if (bufferColor.buffer) {
                         // when arrayBuffer is destroyed and buffer is created
                         var type = gl.ARRAY_BUFFER;
                         // ARRAY_BUFFER
-                        gl.bindBuffer(type, buffer.buffer);
-                        gl.bufferData(type, uint8Array, gl.STATIC_DRAW);
+                        gl.bindBuffer(type, bufferColor.buffer);
+                        gl.bufferData(type, arrObjColor.uint8Array, gl.STATIC_DRAW);
+                    }
+
+                    if (bufferHeight.buffer) {
+                        // when arrayBuffer is destroyed and buffer is created
+                        var type = gl.ARRAY_BUFFER;
+                        // ARRAY_BUFFER
+                        gl.bindBuffer(type, bufferHeight.buffer);
+                        gl.bufferData(type, arrObjHeight.uint8Array, gl.STATIC_DRAW);
                     }
                 }
 
@@ -1005,7 +1027,7 @@ class Style extends Evented {
             this._changed = true;
         }
         
-        else if (isDataDriven || wasDataDriven) {
+        if (isDataDriven || wasDataDriven) {
             this._updateLayer(layer);
         }
 
