@@ -131,6 +131,7 @@ class Style extends Evented {
         this._loaded = false;
 
         this._deferExtrusionFast = false;
+        this._debounceFastSources = false;
 
         this._resetUpdates();
 
@@ -803,10 +804,12 @@ class Style extends Evented {
         // this a temp workaround for one hard coded single usecase
         // need to improve this part and make it work as a more generic feature
         if (fast && name === 'fill-color' && value[0] === "match") {
-            var property = value[1][1];
+            const property = value[1][1];
+            const stops = value.slice(2);
 
-            var gl = this.map.painter.context.gl;
-            var bucketKey = /*'_dgFast_'+*/layerId;
+            const gl = this.map.painter.context.gl;
+            const bucketKey = /*'_dgFast_'+*/layerId;
+            
             function processTile(tile) {
                 if (!tile.buckets[bucketKey]) {
                     tile.postProcess = null;
@@ -814,10 +817,15 @@ class Style extends Evented {
                 }
 
                 const binders = tile.buckets[bucketKey].programConfigurations.programConfigurations[layerId].binders;
+
+                if (!binders || !binders["fill-color"] || !binders["fill-color"].paintVertexBuffer) {
+                    return;
+                }
+
                 const buffer = binders["fill-color"].paintVertexBuffer;
 
                 var flen = tile.featureTags.length;
-                var byteLen = tile.featureTags[flen-1][bucketKey][1] * 4;
+                var byteLen = tile.featureTags[flen-1][bucketKey][1] * buffer.itemSize;
 
                 var uint8Array;
                 if (buffer.arrayBuffer) {
@@ -843,29 +851,27 @@ class Style extends Evented {
 
                 if (buffer.buffer) {
                     // when arrayBuffer is destroyed and buffer is created
-                    var type = gl[buffer.type];
+                    var type = gl.ARRAY_BUFFER;
                     gl.bindBuffer(type, buffer.buffer);
-                    gl.bufferData(type, uint8Array, gl.STATIC_DRAW);
+                    gl.bufferSubData(type, 0, uint8Array);
                 }
             }
 
             // build cache;
             var colorMap = {};
             var defaultColor = [0,0,0,0];
-
-            {
-                const len = value.length - 3;
-                for (var i = 2; i < len; i += 2) {
-                    var rgba = rgba2Array(value[i + 1]);
+            if (stops.length) {
+                for (var i = 0; i < (stops.length - 1); i += 2) {
+                    var rgba = rgba2Array(stops[i + 1]);
                     if (rgba) {
-                        colorMap[value[1]] = rgba;
+                        colorMap[stops[i]] = rgba;
                     }
                 }
-            }
-
-            defaultColor = rgba2Array(value[value.length - 1]);
-            if (defaultColor == null) {
-                defaultColor = [0,0,0,0];
+            
+                defaultColor = rgba2Array(stops[stops.length - 1]);
+                if (defaultColor == null) {
+                    defaultColor = [0,0,0,0];
+                }
             }
 
             // process tiles
@@ -879,7 +885,7 @@ class Style extends Evented {
 
             this._updatedLayers[layer.id] = true;
             this._changed = true;
-        } 
+        }
 
         // this a temp workaround for one hard coded single usecase
         // need to improve this part and make it work as a more generic feature
@@ -911,14 +917,13 @@ class Style extends Evented {
                     const bufferHeight = binders["fill-extrusion-height"].paintVertexBuffer;
                     
                     if (!bufferColor || !bufferHeight) {
-                        console.log("buffer bailed");
                         return;
                     }
                     
                     var flen = tile.featureTags.length;
-                    var byteLen = tile.featureTags[flen-1][bucketKey][1] * 8;
 
                     const createArrObj = (buffer) => {
+                        var byteLen = tile.featureTags[flen-1][bucketKey][1] * buffer.itemSize;
                         var uint8Array;
 
                         if (buffer.arrayBuffer) {
@@ -958,7 +963,7 @@ class Style extends Evented {
                         var type = gl.ARRAY_BUFFER;
                         // ARRAY_BUFFER
                         gl.bindBuffer(type, bufferColor.buffer);
-                        gl.bufferData(type, arrObjColor.uint8Array, gl.STATIC_DRAW);
+                        gl.bufferSubData(type, 0, arrObjColor.uint8Array);
                     }
 
                     if (bufferHeight.buffer) {
@@ -966,7 +971,7 @@ class Style extends Evented {
                         var type = gl.ARRAY_BUFFER;
                         // ARRAY_BUFFER
                         gl.bindBuffer(type, bufferHeight.buffer);
-                        gl.bufferData(type, arrObjHeight.uint8Array, gl.STATIC_DRAW);
+                        gl.bufferSubData(type, 0, arrObjHeight.uint8Array);
                     }
                 }
 
@@ -1027,7 +1032,7 @@ class Style extends Evented {
             this._changed = true;
         }
         
-        if (isDataDriven || wasDataDriven) {
+        else if (isDataDriven || wasDataDriven) {
             this._updateLayer(layer);
         }
 
