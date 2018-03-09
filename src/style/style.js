@@ -875,8 +875,8 @@ class Style extends Evented {
             }
 
             // process tiles
-            for (var key in this.sourceCaches[1]._tiles) {
-                var tile = this.sourceCaches[1]._tiles[key];
+            for (var key in this.sourceCaches[layer.source]._tiles) {
+                var tile = this.sourceCaches[layer.source]._tiles[key];
                 tile.postProcess = processTile;
                 if (tile.buckets[bucketKey]) {
                     processTile(tile);
@@ -1019,8 +1019,8 @@ class Style extends Evented {
                 }
 
                 // process tiles
-                for (var key in this.sourceCaches[1]._tiles) {
-                    var tile = this.sourceCaches[1]._tiles[key];
+                for (var key in this.sourceCaches[layer.source]._tiles) {
+                    var tile = this.sourceCaches[layer.source]._tiles[key];
                     tile.postProcess = processTile;
                     if (tile.buckets[bucketKey]) {
                         processTile(tile);
